@@ -13,10 +13,10 @@ os.chdir(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script")
 
 file_names = []
 
-for i in range(1, 23):
+for i in range(1, 39):
     file_names.append("name" + str(i))
 
-ambiance_names = ["television", "traffic", "coffee2", "coffee1", "river", "wind", "birds", "rain"]
+ambiance_names = ["traffic", "coffee2", "coffee1", "river", "wind", "birds", "rain", "noise1", "noise2", "noise3", "noise4", "noise5", "nano_static"]
 
 file_name = file_names[0]
 
@@ -26,7 +26,8 @@ original_audio = pydub.AudioSegment.from_wav(f"{file_name}.wav")
 
 # INITIALIZE FUNCTIONS:
 # determine if audio segment is only silent
-def is_silent(audio_segment, threshold=0.001):
+# 500 for PCM, 0.001 for floating point
+def is_silent(audio_segment, threshold=500):
     # Convert the audio segment to raw data
     raw_data = np.array(audio_segment.get_array_of_samples())
 
@@ -63,9 +64,11 @@ def slow_down_audio(speed_factor, file1=(f"{file_name}.wav")):
     # Perform time-stretching
     y_slow = librosa.effects.time_stretch(y, speed_factor)
 
-    sf.write(f"name_speed_{speed_factor}.wav", y_slow, sr)
+    sf.write(rf"import\temp_speed_{speed_factor}.wav", y_slow, sr)
 
-    slow_pydub = pydub.AudioSegment.from_wav(f"name_speed_{speed_factor}.wav")
+    slow_pydub = pydub.AudioSegment.from_wav(rf"import\temp_speed_{speed_factor}.wav")
+
+    os.remove(rf"import\temp_speed_{speed_factor}.wav")
 
     return find_loudest_segment(audio=slow_pydub)
 
@@ -115,10 +118,8 @@ def shift_segment(segment, shift_ms, total_length_ms):
     return shifted_segment
 
 #mix two audio files
-def mix_audio_files(audio1, file2_path, gain_dB=0):
+def mix_audio_files(audio1, audio2, gain_dB=0):
     # Load the audio files
-    audio2 = pydub.AudioSegment.from_file(file2_path)
-
     # Adjust the volume of the second audio, if needed
     if gain_dB != 0:
         audio2 += gain_dB
@@ -130,19 +131,51 @@ def mix_audio_files(audio1, file2_path, gain_dB=0):
     return mixed_audio
 
 #loop through time shifts
-def shift_looped(effect, audio, original=file_name, threshold=0.001):
-    for time_shift in range(-500, 500, 500):
-        if time_shift == 0:
-            continue
-
-        # modify time
-        modified_audio = shift_segment(audio, time_shift, 1000)
-
-        if is_silent(modified_audio, threshold):
-            continue
+def shift_looped(effect, audio, original=file_name, threshold=0.001, ambiance="none"):
+    for i in range(3):
+        if "speed" in effect:
+            upper_bound = 250
+            lower_bound = -250
         else:
-            # export audio
-            modified_audio.export(f"{original}_{effect}_shift_{time_shift}.wav", format="wav")
+            upper_bound = 350
+            lower_bound = -350
+
+        acceptable = False
+        time_shift = random.randint(-350,350)
+
+        while acceptable == False:
+            # modify time
+            modified_audio = shift_segment(audio, time_shift, 1000)
+
+            if is_silent(modified_audio, threshold):
+                time_shift = random.randint(-350,350)
+                acceptable = False
+            else:
+                acceptable = True
+
+            if ambiance != "none":
+                shifted_ambiance = shift_segment(ambiance, time_shift, 1000)
+
+                #subtract ambiance and new function, run is silenct
+                diff = modified_audio._spawn(modified_audio.raw_data, overrides={
+                    "frame_rate": modified_audio.frame_rate,
+                    "sample_width": modified_audio.sample_width,
+                    "channels": modified_audio.channels
+                }) - shifted_ambiance._spawn(shifted_ambiance.raw_data, overrides={
+                    "frame_rate": shifted_ambiance.frame_rate,
+                    "sample_width": shifted_ambiance.sample_width,
+                    "channels": shifted_ambiance.channels
+                })
+
+                if is_silent(diff, threshold):
+                    time_shift = random.randint(-350,350)
+                    acceptable = False
+                else:
+                    acceptable = True
+
+
+        # export audio
+        modified_audio.export(rf"import\{original}_{effect}_shift_{time_shift}.wav", format="wav")
 
 #---------------------------------------------------------------------------------#
 
@@ -151,12 +184,12 @@ for i in range(len(file_names)):
     original_audio = pydub.AudioSegment.from_wav(f"{file_name}.wav")
     # MODIFY ORIGINAL_AUDIO
     original_audio = find_loudest_segment(audio=original_audio)
-    original_audio.export(f"{file_name}_original_1sec.wav", format="wav") #export the 1 sec
+    original_audio.export(rf"import\{file_name}_original_1sec.wav", format="wav") #export the 1 sec
 
-    shift_looped(f"original", original_audio, original=file_name)
+    #shift_looped(f"original", original_audio, original=file_name)
 
-    # adjust volume (-10dB to +10dB)
-    for volume_change_dB in range(-10, 11, 5):
+    # adjust volume (-5dB to +10dB)
+    for volume_change_dB in range(-5, 11, 5):
         if volume_change_dB == 0:
             continue
 
@@ -164,22 +197,24 @@ for i in range(len(file_names)):
         modified_audio = original_audio + volume_change_dB
 
         # Export the modified file
-        modified_audio.export(f"{file_name}_volume_{volume_change_dB}.wav", format="wav")
+        modified_audio.export(rf"import\{file_name}_volume_{volume_change_dB}.wav", format="wav")
 
-        shift_looped(f"volume_{volume_change_dB}", modified_audio, original=file_name)
+        #shift_looped(f"volume_{volume_change_dB}", modified_audio, original=file_name)
 
     # adjust pitch (-10 semitones to 10 semitones)
-    for semitone_change in range(-10, 11, 5):
+    for semitone_change in range(-5, 6, 5):
+        if semitone_change == 0:
+            continue
+        
         # Modify pitch
         modified_audio = change_pitch(semitone_change, audio=original_audio)
 
         # Save the modified audio
-        modified_audio.export(f"{file_name}_pitch_{semitone_change}.wav", format="wav")
+        modified_audio.export(rf"import\{file_name}_pitch_{semitone_change}.wav", format="wav")
 
-        shift_looped(f"pitch_{semitone_change}", modified_audio, original=file_name)
+        #shift_looped(f"pitch_{semitone_change}", modified_audio, original=file_name)
 
-    #ONLY SPEEDS UP!
-    for speed_factor in np.arange(0.5, 1.6, 0.5):
+    for speed_factor in np.arange(1.25, 1.26, 0.25):
         if speed_factor == 0 or speed_factor == 1:
             continue
         elif speed_factor > 1:
@@ -189,68 +224,68 @@ for i in range(len(file_names)):
             modified_audio = slow_down_audio(speed_factor, file1=(f"{file_name}.wav"))
         
         # export audio
-            modified_audio.export(f"{file_name}_speed_{speed_factor}.wav", format="wav")
+        modified_audio.export(rf"import\{file_name}_speed_{speed_factor}.wav", format="wav")
         
-        shift_looped(f"speed_{speed_factor}", modified_audio, original=file_name)
+        #shift_looped(f"speed_{speed_factor}", modified_audio, original=file_name)
 
 #---------------------------------------------------------------------------------#
 
     #integrate background noise 
     for ambiance in ambiance_names:
-        ambiance_file_name = os.path.join("ambiance", f"{ambiance}.wav")
+        for ambiance_db in range(-5, 6, 5):
+            ambiance_file_name = os.path.join("ambiance", f"{ambiance}.wav")
 
-        ambiance_audio = pydub.AudioSegment.from_wav(ambiance_file_name)
+            ambiance_audio = pydub.AudioSegment.from_wav(ambiance_file_name)
 
-        raw_ambiance = np.array(ambiance_audio.get_array_of_samples())
+            mixed_audio = mix_audio_files(original_audio, ambiance_audio, gain_dB=ambiance_db)
 
-        threshold = np.mean(raw_ambiance) * 1.1
+            #export mixed audio
+            mixed_audio.export(rf"import\{file_name}_{ambiance}_{ambiance_db}gain.wav", format="wav")
 
-        mixed_audio = mix_audio_files(original_audio, ambiance_file_name)
+            #export mixed audio shifted
+            #shift_looped(f"{ambiance}_{ambiance_db}gain", original_audio)
 
-        #export mixed audio
-        mixed_audio.export(f"{file_name}_{ambiance}.wav", format="wav")
+            # adjust volume (-5dB to +10dB)
+            for volume_change_dB in range(-5, 11, 5):
+                if volume_change_dB == 0:
+                    continue
 
-        #export mixed audio shifted
-        shift_looped(f"{ambiance}", original_audio)
+                # Modify volume
+                modified_audio = mixed_audio + volume_change_dB
 
-        # adjust volume (-10dB to +10dB)
-        for volume_change_dB in range(-10, 11, 5):
-            if volume_change_dB == 0:
-                continue
+                # Export the modified file
+                modified_audio.export(rf"import\{file_name}_volume_{volume_change_dB}_{ambiance}_{ambiance_db}gain.wav", format="wav")
 
-            # Modify volume
-            modified_audio = mixed_audio + volume_change_dB
+                #shift_looped(f"volume_{volume_change_dB}_{ambiance}_{ambiance_db}gain", modified_audio, original=file_name, ambiance=ambiance_audio)
 
-            # Export the modified file
-            modified_audio.export(f"{file_name}_volume_{volume_change_dB}_{ambiance}.wav", format="wav")
+            # adjust pitch (-10 semitones to 10 semitones)
+            for semitone_change in range(-5, 6, 5):
+                if semitone_change == 0:
+                    continue 
 
-            shift_looped(f"volume_{volume_change_dB}_{ambiance}", modified_audio, original=file_name, threshold=threshold)
+                # Modify pitch
+                modified_audio = change_pitch(semitone_change, audio=mixed_audio)
 
-        # adjust pitch (-10 semitones to 10 semitones)
-        for semitone_change in range(-10, 11, 5):
-            # Modify pitch
-            modified_audio = change_pitch(semitone_change, audio=mixed_audio)
+                # Save the modified audio
+                modified_audio.export(rf"import\{file_name}_pitch_{semitone_change}_{ambiance}_{ambiance_db}gain.wav", format="wav")
 
-            # Save the modified audio
-            modified_audio.export(f"{file_name}_pitch_{semitone_change}_{ambiance}.wav", format="wav")
+                #shift_looped(f"pitch_{semitone_change}_{ambiance}_{ambiance_db}gain", modified_audio, original=file_name, ambiance=ambiance_audio)
 
-            shift_looped(f"pitch_{semitone_change}_{ambiance}", modified_audio, original=file_name, threshold=threshold)
+            # speed and slow down
+            for speed_factor in np.arange(1.25, 1.26, 0.5):
+                if speed_factor == 0 or speed_factor == 1:
+                    continue
+                elif speed_factor > 1:
+                    #speed up audio
+                    modified_audio = mixed_audio.speedup(speed_factor)
+                else:
+                    #slow down audio
+                    modified_audio = slow_down_audio(speed_factor, file1=(ambiance_file_name))
+                
+                # export audio
+                modified_audio.export(rf"import\{file_name}_speed_{speed_factor}_{ambiance}_{ambiance_db}gain.wav", format="wav")
 
-        # speed and slow down
-        for speed_factor in np.arange(0.5, 1.6, 0.5):
-            if speed_factor == 0 or speed_factor == 1:
-                continue
-            elif speed_factor > 1:
-                #speed up audio
-                modified_audio = mixed_audio.speedup(speed_factor)
-            else:
-                #slow down audio
-                modified_audio = slow_down_audio(speed_factor, file1=(ambiance_file_name))
-            
-            # export audio
-            modified_audio.export(f"{file_name}_speed_{speed_factor}_{ambiance}.wav", format="wav")
-
-            shift_looped(f"speed_{speed_factor}_{ambiance}", modified_audio, original=file_name, threshold=threshold)
+                #shift_looped(f"speed_{speed_factor}_{ambiance}_{ambiance_db}gain", modified_audio, original=file_name, ambiance=ambiance_audio)
 
 #---------------------------------------------------------------------------------#
             
@@ -278,4 +313,4 @@ def delete_random_files(directory, desired_count, keep_list):
 
     print(f"Operation completed. {len(files)} files remaining.")
 
-delete_random_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script", 1600, [name + ".wav" for name in file_names])
+#delete_random_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import", 20200, [name + ".wav" for name in file_names])
