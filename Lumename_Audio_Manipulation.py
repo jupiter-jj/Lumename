@@ -4,8 +4,35 @@ import librosa #must be cersion 0.9.1
 import soundfile as sf
 import os
 import random
+import shutil
 
-#---------------------------------------------------------------------------------#
+#----------------------------------------------------------------DELETE IMPORT FOLDERS-----------------------------------------------------------------------#
+
+# Define list of paths
+paths = [
+    r"C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\import_unknown",
+    r"C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\static\import",
+    r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import"
+]
+
+# Loop through each path and delete its contents
+for path in paths:
+    print(f"Deleting contents of: {path}")
+    
+    # Delete all files in the directory
+    for filename in os.listdir(path):
+        file_path = os.path.join(path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            print(f"Failed to delete {file_path}. Reason: {e}")
+
+print("Deletion complete.")
+
+#----------------------------------------------------------------MARK AUDIO MANIPULATION-----------------------------------------------------------------------#
 
 # INITIALIZE VARIABLES/FILEPATHS:
 # change to working directory
@@ -314,3 +341,173 @@ def delete_random_files(directory, desired_count, keep_list):
     print(f"Operation completed. {len(files)} files remaining.")
 
 #delete_random_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import", 20200, [name + ".wav" for name in file_names])
+    
+
+#----------------------------------------------------------------VALIDATION SET-----------------------------------------------------------------------#
+
+#reset directory
+os.chdir(os.path.expanduser('~'))
+
+# Define the source and target directories 
+source_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation'
+target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import'
+
+#--------------------------------------------------------------------------------------#
+
+# Ensure the target directory exists
+os.makedirs(target_dir, exist_ok=True)
+
+# Collect all file paths in the source directory and its subdirectories
+all_files = []
+for root, dirs, files in os.walk(source_dir):
+    for file in files:
+        all_files.append(os.path.join(root, file))
+
+
+counter = 0
+for file_path in all_files:
+    for volume_change_dB in range(0, 11, 5):
+        try:
+            audio = pydub.AudioSegment.from_wav(file_path)
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+        length_audio = len(audio)
+        start = 0
+        one_second = 1000 # 1000 ms = 1 sec
+        for i in range(0, length_audio, one_second):
+            # Calculate the end position for the current segment
+            end = start + one_second
+            
+            # Ensure the end position does not exceed the audio length
+            if end <= length_audio:
+                # Extract the segment
+                segment = audio[start:end]
+                try:
+                    new_path = os.path.join(target_dir, (f"{os.path.basename(file_path)[0:-4]}_{volume_change_dB}db_ambiance_{str(counter)}.wav"))
+                    segment = segment + volume_change_dB
+                    segment.export((new_path), format="wav")
+                    counter += 1
+                except Exception as e:
+                    print(f"(ambiance) Error copying {file_path} to {new_path}: {e}")
+            
+            # Update the start position for the next segment
+            start = end
+
+print(f"(ambiance) Moved {counter} files to {target_dir}")
+
+
+#----------------------------------------------------------------STATIC MANIPULATION-----------------------------------------------------------------------#
+
+
+# Define the source and target directories 
+source_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\static'
+target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\static\import'
+
+#--------------------------------------------------------------------------------------#
+
+# Ensure the target directory exists
+os.makedirs(target_dir, exist_ok=True)
+
+# Collect all file paths in the source directory and its subdirectories
+all_files = []
+for root, dirs, files in os.walk(source_dir):
+    for file in files:
+        all_files.append(os.path.join(root, file))
+
+# Move each selected file to the target directory
+counter = 0
+for file_path in all_files:
+    original_audio = pydub.AudioSegment.from_wav(file_path)
+    for volume_change_dB in range(-5, 21, 5):
+        counter += 1
+
+        # Modify volume
+        modified_audio = original_audio + volume_change_dB
+
+        # Export the modified file
+        new_path = os.path.join(target_dir, (f"{volume_change_dB}db_{(os.path.basename(file_path))[0:-2]}_{str(counter)}.wav"))
+        modified_audio.export((new_path), format="wav")
+    
+
+print(f"Moved {counter} files to {target_dir}")
+
+
+#----------------------------------------------------------------BACKGROUND NOISE MANIPULATION-----------------------------------------------------------------------#
+
+
+# Define the source and target directories 
+source_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\speech_commands_v0.02'
+ambiance_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\full_ambiance'
+target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\import_unknown'
+
+# Define the number of files to randomly select
+x = 13000  # Example: selecting 10 files
+
+#--------------------------------------------------------------------------------------#
+
+# Collect all file paths in the AMBIANCE directory and its subdirectories
+ambiance_files = [os.path.join(ambiance_dir, f) for f in os.listdir(ambiance_dir)]
+
+ambiance_counter = 0
+for file_path in ambiance_files:
+    try:
+        ambiance_original = pydub.AudioSegment.from_wav(file_path)
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+    length_audio = len(ambiance_original)
+    start = 0
+    one_second = 1000 # 1000 ms = 1 sec
+    for i in range(0, length_audio, one_second):
+        # Calculate the end position for the current segment
+        end = start + one_second
+        
+        # Ensure the end position does not exceed the audio length
+        if end <= length_audio:
+            # Extract the segment
+            segment = ambiance_original[start:end]
+            try:
+                new_path = os.path.join(target_dir, ("ambiance" + str(ambiance_counter) + "_" + os.path.basename(file_path)))
+                segment.export((new_path), format="wav")
+                ambiance_counter += 1
+            except Exception as e:
+                print(f"(ambiance) Error copying {file_path} to {new_path}: {e}")
+        
+        # Update the start position for the next segment
+        start = end
+
+print(f"(ambiance) Moved {ambiance_counter} files to {target_dir}")
+
+#--------------------------------------------------------------------------------------#
+
+# Ensure the target directory exists
+os.makedirs(target_dir, exist_ok=True)
+
+# Collect all file paths in the SOURCE directory and its subdirectories
+all_files = []
+for root, dirs, files in os.walk(source_dir):
+    for file in files:
+        all_files.append(os.path.join(root, file))
+
+# Ensure x does not exceed the number of files available
+x = min(x, len(all_files))
+x -= ambiance_counter
+
+# Randomly select x files
+selected_files = random.sample(all_files, x)
+
+print(f"(other) Total files available: {len(all_files)}")
+print(f"(other) Files to be processed: {len(selected_files)}")
+
+# Move each selected file to the target directory
+counter = 0
+for file_path in selected_files:
+    try:
+        new_path = os.path.join(target_dir, (str(counter) + os.path.basename(file_path)))
+        shutil.copy(file_path, new_path)
+        counter += 1
+    except Exception as e:
+        print(f"(other) Error copying {file_path} to {new_path}: {e}")
+
+print(f"(other) Moved {counter} files to {target_dir}")
+
+#--------------------------------------------------------------------------------------#
