@@ -583,3 +583,19 @@ for file_path in selected_files:
 print(f"(other) Moved {counter+ambiance_counter} files to {target_dir}")
 
 #--------------------------------------------------------------------------------------#
+
+#upload to edge-impulse-cli
+#os.system("pip install nodejs") #pip install nodejs if needed
+#os.system("npm install -g edge-impulse-cli --force") #install edge-impulse-cli if needed
+
+#upload MARK training data
+os.system(r"edge-impulse-uploader --label mark --directory C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import")
+
+#upload STATIC training data
+os.system(r"edge-impulse-uploader --label static --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\static\import")
+
+#upload UNKNOWN training data
+os.system(r"edge-impulse-uploader --label unknown --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\import_unknown")
+
+#upload ALL TESTING data
+os.system(r"edge-impulse-uploader --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import")
