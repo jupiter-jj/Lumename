@@ -168,6 +168,8 @@ def change_pitch(semitone_change, file_path, target_length_ms=1000):
 
     os.unlink(temp_path)
 
+    shifted_audio = shifted_audio + ((1.5**semitone_change) + 2.5) #the more pitch change, the more volume compensation
+
     return shifted_audio
 
 # shift audio to be in diff places
@@ -208,51 +210,37 @@ def mix_audio_files(audio1, audio2, gain_dB=0):
     return mixed_audio
 
 #loop through time shifts
-def shift_looped(effect, audio, original=file_name, threshold=0.001, ambiance="none"):
-    for i in range(3):
-        if "speed" in effect:
-            upper_bound = 250
-            lower_bound = -250
-        else:
-            upper_bound = 350
-            lower_bound = -350
+def shift_looped(effect, audio, original=file_name, threshold=0.001, ambiance_audio=None, ambiance_db=None, target_dir=target_dir):
+    for i in range(2):
+        # if "speed" in effect:
+        #     upper_bound = 150
+        #     lower_bound = -150
+        # else:
+        #     upper_bound = 250
+        #     lower_bound = -250
+        upper_bound = 350
+        lower_bound = -350
 
         acceptable = False
-        time_shift = random.randint(-350,350)
+        time_shift = random.randint(lower_bound,upper_bound)
 
         while acceptable == False:
             # modify time
             modified_audio = shift_segment(audio, time_shift, 1000)
 
             if is_silent(modified_audio, threshold):
-                time_shift = random.randint(-350,350)
+                time_shift = random.randint(lower_bound,upper_bound)
                 acceptable = False
             else:
                 acceptable = True
 
-            if ambiance != "none":
-                shifted_ambiance = shift_segment(ambiance, time_shift, 1000)
+        if ambiance_audio != None:
+            modified_audio = mix_audio_files(modified_audio, ambiance_audio, gain_dB=ambiance_db)
 
-                #subtract ambiance and new function, run is silenct
-                diff = modified_audio._spawn(modified_audio.raw_data, overrides={
-                    "frame_rate": modified_audio.frame_rate,
-                    "sample_width": modified_audio.sample_width,
-                    "channels": modified_audio.channels
-                }) - shifted_ambiance._spawn(shifted_ambiance.raw_data, overrides={
-                    "frame_rate": shifted_ambiance.frame_rate,
-                    "sample_width": shifted_ambiance.sample_width,
-                    "channels": shifted_ambiance.channels
-                })
-
-                if is_silent(diff, threshold+200):
-                    time_shift = random.randint(-350,350)
-                    acceptable = False
-                else:
-                    acceptable = True
-
+        new_path = os.path.join(target_dir, (f"name.{original}_{effect}_shift_{time_shift}.wav"))
 
         # export audio
-        modified_audio.export(rf"import\mark.{original}_{effect}_shift_{time_shift}.wav", format="wav")
+        modified_audio.export(new_path, format="wav")
 
 def rand_range(lower_bound, upper_bound, n, round_dec=2):
     range_list = []
@@ -264,6 +252,18 @@ def rand_range(lower_bound, upper_bound, n, round_dec=2):
         range_list.append(round(num, round_dec))
     return range_list
 
+def speed_up(audio, speed_factor, total_length_ms=1000):
+    audio = audio.speedup(speed_factor)
+    
+    if len(audio) < total_length_ms:
+        # Add silence at the end if the segment is too short
+        padding_duration = total_length_ms - len(audio)
+        end_padding = pydub.AudioSegment.silent(duration=padding_duration)
+        audio += end_padding
+    
+    return audio
+
+
 #---------------------------------------------------------------------------------#
 
 for i in range(len(file_names)):
@@ -272,9 +272,9 @@ for i in range(len(file_names)):
     original_audio = pydub.AudioSegment.from_wav(f"{file_name}.wav")
     # MODIFY ORIGINAL_AUDIO
     original_audio = find_loudest_segment(audio=original_audio)
-    original_audio.export(rf"import\training\mark.{file_name}_original_1sec.wav", format="wav") #export the 1 sec
+    #original_audio.export(rf"import\training\name.{file_name}_original_1sec.wav", format="wav") #export the 1 sec
 
-    #shift_looped(f"original", original_audio, original=file_name)
+    shift_looped(f"original", original_audio, original=file_name, target_dir=target_dir)
 
     # adjust volume (-5dB to +10dB)
     for volume_change_dB in rand_range(-5, 11, 3):
@@ -285,13 +285,13 @@ for i in range(len(file_names)):
         modified_audio = original_audio + volume_change_dB
 
         # Export the modified file
-        new_path = os.path.join(target_dir, (f"mark.{file_name}_volume_{volume_change_dB}.wav"))
-        modified_audio.export(new_path, format="wav")
+        #new_path = os.path.join(target_dir, (f"name.{file_name}_volume_{volume_change_dB}.wav"))
+        #modified_audio.export(new_path, format="wav")
 
-        #shift_looped(f"volume_{volume_change_dB}", modified_audio, original=file_name)
+        shift_looped(f"volume_{volume_change_dB}", modified_audio, original=file_name, target_dir=target_dir)
 
     # adjust pitch (-10 semitones to 10 semitones)
-    for semitone_change in rand_range(-6, 7, 2):
+    for semitone_change in rand_range(-7, 7, 2):
         if semitone_change == 0:
             continue
         
@@ -299,25 +299,25 @@ for i in range(len(file_names)):
         modified_audio = change_pitch(semitone_change, f"{file_name}.wav")
 
         # Save the modified audio
-        new_path = os.path.join(target_dir, (f"mark.{file_name}_pitch_{semitone_change}.wav"))
-        modified_audio.export(new_path, format="wav")
+        #new_path = os.path.join(target_dir, (f"name.{file_name}_pitch_{semitone_change}.wav"))
+        #modified_audio.export(new_path, format="wav")
 
-        #shift_looped(f"pitch_{semitone_change}", modified_audio, original=file_name)
+        shift_looped(f"pitch_{semitone_change}", modified_audio, original=file_name, target_dir=target_dir)
 
     for speed_factor in rand_range(1.1, 1.4, 1):
         if speed_factor == 0 or speed_factor == 1:
             continue
         elif speed_factor > 1:
             #speed up audio
-            modified_audio = original_audio.speedup(speed_factor)
+            modified_audio = speed_up(original_audio, speed_factor)
         else:
             modified_audio = slow_down_audio(speed_factor, file1=(f"{file_name}.wav"))
         
         # export audio
-        new_path = os.path.join(target_dir, (f"mark.{file_name}_speed_{speed_factor}.wav"))
-        modified_audio.export(new_path, format="wav")
+        #new_path = os.path.join(target_dir, (f"name.{file_name}_speed_{speed_factor}.wav"))
+        #modified_audio.export(new_path, format="wav")
         
-        #shift_looped(f"speed_{speed_factor}", modified_audio, original=file_name)
+        shift_looped(f"speed_{speed_factor}", modified_audio, original=file_name, target_dir=target_dir)
 
 #---------------------------------------------------------------------------------#
 
@@ -326,14 +326,8 @@ for i in range(len(file_names)):
         start = ambiance_path.find("\\ambiance\\")
         start += len("\\ambiance\\") #len("\\ambiance\\") = 12
         ambiance_name = ambiance_path[start:]
-        for ambiance_db in rand_range(-5, 11, 2):
+        for ambiance_db in rand_range(-7, 8, 2):
             ambiance_audio = pydub.AudioSegment.from_wav(ambiance_path)
-
-            mixed_audio = mix_audio_files(original_audio, ambiance_audio, gain_dB=ambiance_db)
-
-            #export mixed audio
-            mixed_path = os.path.join(target_dir, (f"mark.{file_name}_{ambiance_db}gain_{ambiance_name}"))
-            mixed_audio.export(mixed_path, format="wav")
 
             #export mixed audio shifted
             # adjust volume (-5dB to +10dB)
@@ -342,28 +336,38 @@ for i in range(len(file_names)):
                     continue
 
                 # Modify volume
-                modified_audio = mixed_audio + volume_change_dB
+                modified_audio = original_audio + volume_change_dB
+                
+                timestamp = random.randint(0, len(ambiance_audio)-1000)
+                ambiance_segment = ambiance_audio[timestamp:timestamp+1001]
+
+                modified_audio = mix_audio_files(modified_audio, ambiance_segment, gain_dB=ambiance_db)
 
                 # Export the modified file
-                new_path = os.path.join(target_dir, (f"mark.{file_name}_volume_{volume_change_dB}_{ambiance_db}gain_{ambiance_name}"))
-                modified_audio.export(new_path, format="wav")
+                #new_path = os.path.join(target_dir, (f"name.{file_name}_volume_{volume_change_dB}_{ambiance_db}gain_{ambiance_name}"))
+                #modified_audio.export(new_path, format="wav")
 
-                #shift_looped(f"volume_{volume_change_dB}_{ambiance}_{ambiance_db}gain", modified_audio, original=file_name, ambiance=ambiance_audio)
+                shift_looped(f"volume_{volume_change_dB}_{ambiance_name}_{ambiance_db}gain", modified_audio, original=file_name, ambiance_audio=ambiance_audio, ambiance_db=ambiance_db, target_dir=target_dir)
 
             # adjust pitch (-10 semitones to 10 semitones)
             
-            for semitone_change in rand_range(-6, 7, 2):
+            for semitone_change in rand_range(-7, 7, 2):
                 if semitone_change == 0:
                     continue 
 
                 # Modify pitch
-                modified_audio = change_pitch(semitone_change, mixed_path)
+                modified_audio = change_pitch(semitone_change, f"{file_name}.wav")
+
+                timestamp = random.randint(0, len(ambiance_audio)-1000)
+                ambiance_segment = ambiance_audio[timestamp:timestamp+1001]
+
+                modified_audio = mix_audio_files(modified_audio, ambiance_segment, gain_dB=ambiance_db)
 
                 # Save the modified audio
-                new_path = os.path.join(target_dir, (f"mark.{file_name}_pitch_{semitone_change}_{ambiance_db}gain_{ambiance_name}"))
-                modified_audio.export(new_path, format="wav")
+                #new_path = os.path.join(target_dir, (f"name.{file_name}_pitch_{semitone_change}_{ambiance_db}gain_{ambiance_name}"))
+                #modified_audio.export(new_path, format="wav")
 
-                #shift_looped(f"pitch_{semitone_change}_{ambiance}_{ambiance_db}gain", modified_audio, original=file_name, ambiance=ambiance_audio)
+                shift_looped(f"pitch_{semitone_change}_{ambiance_name}_{ambiance_db}gain", modified_audio, original=file_name, ambiance_audio=ambiance_audio, ambiance_db=ambiance_db, target_dir=target_dir)
 
             # speed and slow down
 
@@ -372,16 +376,21 @@ for i in range(len(file_names)):
                     continue
                 elif speed_factor > 1:
                     #speed up audio
-                    modified_audio = mixed_audio.speedup(speed_factor)
+                    modified_audio = speed_up(original_audio, speed_factor)
                 else:
                     #slow down audio
                     modified_audio = slow_down_audio(speed_factor, file1=(ambiance_path))
                 
-                # export audio
-                new_path = os.path.join(target_dir, (f"mark.{file_name}_speed_{speed_factor}_{ambiance_db}gain_{ambiance_name}"))
-                modified_audio.export(new_path, format="wav")
+                timestamp = random.randint(0, len(ambiance_audio)-1000)
+                ambiance_segment = ambiance_audio[timestamp:timestamp+1001]
 
-                #shift_looped(f"speed_{speed_factor}_{ambiance}_{ambiance_db}gain", modified_audio, original=file_name, ambiance=ambiance_audio)
+                modified_audio = mix_audio_files(modified_audio, ambiance_segment, gain_dB=ambiance_db)
+
+                # export audio
+                #new_path = os.path.join(target_dir, (f"name.{file_name}_speed_{speed_factor}_{ambiance_db}gain_{ambiance_name}"))
+                #modified_audio.export(new_path, format="wav")
+
+                shift_looped(f"speed_{speed_factor}_{ambiance_name}_{ambiance_db}gain", modified_audio, original=file_name, ambiance_audio=ambiance_audio, ambiance_db=ambiance_db, target_dir=target_dir)
 
 #---------------------------------------------------------------------------------#
             
@@ -413,58 +422,57 @@ def delete_random_files(directory, desired_count, keep_list):
 
 #----------------------------------------------------------------VALIDATION SET-----------------------------------------------------------------------#
 
-#reset directory
-os.chdir(os.path.expanduser('~'))
+# #reset directory
+# os.chdir(os.path.expanduser('~'))
 
-# Define the source and target directories 
-source_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation'
-target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import\testing'
+# # Define the source and target directories 
+# source_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation'
+# target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import\testing'
 
 #--------------------------------------------------------------------------------------#
 
-# Ensure the target directory exists
-os.makedirs(target_dir, exist_ok=True)
+# # Ensure the target directory exists
+# os.makedirs(target_dir, exist_ok=True)
 
-# Collect all file paths in the source directory and its subdirectories
-all_files = []
-for entry in os.listdir(source_dir):
-    full_path = os.path.join(source_dir, entry)
-    # Check if it's a file and append
-    if os.path.isfile(full_path):
-        all_files.append(full_path)
+# # Collect all file paths in the source directory and its subdirectories
+# all_files = []
+# for entry in os.listdir(source_dir):
+#     full_path = os.path.join(source_dir, entry)
+#     # Check if it's a file and append
+#     if os.path.isfile(full_path):
+#         all_files.append(full_path)
 
 
-counter = 0
-for file_path in all_files:
-    for volume_change_dB in rand_range(0, 11, 2):
-        try:
-            audio = pydub.AudioSegment.from_wav(file_path)
-        except Exception as e:
-            print(f"Error processing {file_path}: {e}")
-        length_audio = len(audio)
-        start = 0
-        one_second = 1000 # 1000 ms = 1 sec
-        for i in range(0, length_audio, one_second):
-            # Calculate the end position for the current segment
-            end = start + one_second
+# counter = 0
+# for file_path in all_files:
+#     for volume_change_dB in rand_range(0, 11, 2):
+#         try:
+#             audio = pydub.AudioSegment.from_wav(file_path)
+#         except Exception as e:
+#             print(f"Error processing {file_path}: {e}")
+#         length_audio = len(audio)
+#         start = 0
+#         one_second = 1000 # 1000 ms = 1 sec
+#         for i in range(0, length_audio, one_second):
+#             # Calculate the end position for the current segment
+#             end = start + one_second
             
-            # Ensure the end position does not exceed the audio length
-            if end <= length_audio:
-                # Extract the segment
-                segment = audio[start:end]
-                try:
-                    new_path = os.path.join(target_dir, (f"{os.path.basename(file_path)[0:-4]}_{volume_change_dB}db_ambiance_{str(counter)}.wav"))
-                    segment = segment + volume_change_dB
-                    segment.export((new_path), format="wav")
-                    counter += 1
-                except Exception as e:
-                    print(f"(ambiance) Error copying {file_path} to {new_path}: {e}")
+#             # Ensure the end position does not exceed the audio length
+#             if end <= length_audio:
+#                 # Extract the segment
+#                 segment = audio[start:end]
+#                 try:
+#                     new_path = os.path.join(target_dir, (f"{os.path.basename(file_path)[0:-4]}_{volume_change_dB}db_ambiance_{str(counter)}.wav"))
+#                     segment = segment + volume_change_dB
+#                     segment.export((new_path), format="wav")
+#                     counter += 1
+#                 except Exception as e:
+#                     print(f"(ambiance) Error copying {file_path} to {new_path}: {e}")
             
-            # Update the start position for the next segment
-            start = end
+#             # Update the start position for the next segment
+#             start = end
 
-print(f"(ambiance) Moved {counter} files to {target_dir}")
-
+# print(f"(ambiance) Moved {counter} files to {target_dir}")
 
 #----------------------------------------------------------------STATIC MANIPULATION-----------------------------------------------------------------------#
 
@@ -514,7 +522,7 @@ ambiance_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\full_a
 target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\import_unknown\training'
 
 # Define the number of files to randomly select
-x = count_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import\training")  # number of mark files
+x = count_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import\training") + 2000 # number of name files
 
 #--------------------------------------------------------------------------------------#
 
@@ -582,14 +590,18 @@ for file_path in selected_files:
 
 print(f"(other) Moved {counter+ambiance_counter} files to {target_dir}")
 
-#--------------------------------------------------------------------------------------#
+
+#----------------------------------------------------------------UPLOAD TO EDGE IMPULSE CLI-----------------------------------------------------------------------#
+
 
 #upload to edge-impulse-cli
 #os.system("pip install nodejs") #pip install nodejs if needed
 #os.system("npm install -g edge-impulse-cli --force") #install edge-impulse-cli if needed
 
+os.system(r"edge-impulse-uploader --api-key ei_8d4f08d9d3c210ba69d9e71cda762768df24faee23b8f2b4ec6ce2362b57cf02") #makes data automatically go to specific project
+
 #upload MARK training data
-os.system(r"edge-impulse-uploader --label mark --directory C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import")
+os.system(r"edge-impulse-uploader --label name --directory C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import")
 
 #upload STATIC training data
 os.system(r"edge-impulse-uploader --label static --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\static\import")
@@ -598,4 +610,4 @@ os.system(r"edge-impulse-uploader --label static --directory C:\Users\jnell\Down
 os.system(r"edge-impulse-uploader --label unknown --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\import_unknown")
 
 #upload ALL TESTING data
-os.system(r"edge-impulse-uploader --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import")
+#os.system(r"edge-impulse-uploader --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import")
