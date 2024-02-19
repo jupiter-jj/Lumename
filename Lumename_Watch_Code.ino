@@ -41,10 +41,31 @@
 
 /* Includes ---------------------------------------------------------------- */
 #include <PDM.h>
-#include <lumename-version-17_inferencing.h>
+#include <lumename-version-21_inferencing.h>
 
 
 //------------------------------------------------------------- CHUNK 1 START -------------------------------------------------------------//
+//include for OLED
+#include <DS3231.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+//Display configuration
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET    -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+//RTC configuration
+DS3231 myRTC;
+bool century = false;
+bool h12Flag;
+bool pmFlag;
+byte alarmDay, alarmHour, alarmMinute, alarmSecond, alarmBits;
+bool alarmDy, alarmH12Flag, alarmPmFlag;
+
 //electronic devices
 #define VBR1 3
 #define VBR2 4
@@ -54,21 +75,25 @@
 #define WAKE_PULSE 7
 
 //class indexes
-#define MARK_INDEX 0
+#define NAME_INDEX 0
 #define STATIC_INDEX 1
 #define UNKNOWN_INDEX 2
 
 //thresholds
-#define MASTER_MARK_THRESHOLD 0.7
-//#define DEPENDENT_MARK_THRESHOLD 0.3
+#define MASTER_NAME_THRESHOLD 0.8
+#define AVG2_NAME_THRESHOLD 0.5
+//#define DEPENDENT_NAME_THRESHOLD 0.3
 //#define STATIC_THRESHOLD 0.2
-//#define UNKNOWN_THRESHOLD 0.45
+//#define UNKNOWN_THRESHOLD 0.6
 
 //debug
-//#define DEBUG
+#define DEBUG
 
 unsigned long currentTime = 0;
 unsigned long triggerTime = 0;
+
+float avg;
+float prev;
 
 //------------------------------------------------------------- CHUNK 1 END -------------------------------------------------------------//
 
@@ -100,7 +125,20 @@ void setup()
     //while (!Serial);
     Serial.println("Edge Impulse Inferencing Demo");
     //FINISH DELETE CHUNK -----------------------------------------
+	  Wire.begin(); // Start the I2C interface
 
+    //init display
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
+#ifdef DEBUG
+      Serial.println(F("SSD1306 allocation failed"));
+#endif
+      for (;;); // Don't proceed, loop forever
+    } else {
+#ifdef DEBUG
+      Serial.println(F("SSD1306 Begun"));
+#endif
+    }
+    //set pinmodes
     pinMode(VBR1, OUTPUT);
     pinMode(VBR2, OUTPUT);
     pinMode(VBR3, OUTPUT);
@@ -133,7 +171,21 @@ void setup()
 void loop()
 {
   //------------------------------------------------------------- CHUNK 3 START -------------------------------------------------------------//
-      //TIME DEPENDENT COMPONENTS ----------------------------------
+    // reset display
+    display.setRotation(1); //rotate 90 degrees
+    display.clearDisplay(); //clears display
+    display.setTextColor(SSD1306_WHITE); //sets color to white
+    display.setTextSize(5.5); //sets text size to 6 (60 pixels)
+    display.setCursor(1, 20); //x, y starting coordinates
+
+    //print2digits(myRTC.getHour(h12Flag, pmFlag));
+    //display.print(":");
+    //display.setCursor(1,74); //next line
+    //print2digits(myRTC.getMinute());
+    
+    //display.display();
+    
+    //TIME DEPENDENT COMPONENTS ----------------------------------
     currentTime = millis();
 
     //turn on/off vibrator and led
@@ -193,13 +245,23 @@ void loop()
         }
 #endif //FINISH REPLACE CHUNK -----------------------------------------
 
-//#define MARK_INDEX, STATIC_INDEX, UNKNOWN_INDEX
-//MASTER_MARK_THRESHOLD, DEPENDENT_MARK_THRESHOLD, STATIC_THRESHOLD, UNKNOWN_THRESHOLD
-    if (result.classification[MARK_INDEX].value > MASTER_MARK_THRESHOLD){
-          triggerTime = millis();
-    } /*else if ((result.classification[MARK_INDEX].value > DEPENDENT_MARK_THRESHOLD) && (result.classification[STATIC_INDEX].value < STATIC_THRESHOLD) && (result.classification[UNKNOWN_INDEX].value < UNKNOWN_THRESHOLD)){
+//#define NAME_INDEX, STATIC_INDEX, UNKNOWN_INDEX
+//MASTER_NAME_THRESHOLD, DEPENDENT_NAME_THRESHOLD, STATIC_THRESHOLD, UNKNOWN_THRESHOLD
+    display.print(int(result.classification[NAME_INDEX].value * 100));
+    display.display();
+
+    avg = (result.classification[NAME_INDEX].value + prev) / 2;
+
+    if (result.classification[NAME_INDEX].value > MASTER_NAME_THRESHOLD){
+        triggerTime = millis();
+    } else if (avg > AVG2_NAME_THRESHOLD){
+        triggerTime = millis();
+    }
+    
+    /*else if ((result.classification[NAME_INDEX].value > DEPENDENT_NAME_THRESHOLD) && (result.classification[STATIC_INDEX].value < STATIC_THRESHOLD) && (result.classification[UNKNOWN_INDEX].value < UNKNOWN_THRESHOLD)){
           triggerTime = millis();
     }*/
+    prev = result.classification[NAME_INDEX].value;
 
 //------------------------------------------------------------- CHUNK 4 END -------------------------------------------------------------//
 
@@ -339,3 +401,14 @@ static void microphone_inference_end(void)
 #if !defined(EI_CLASSIFIER_SENSOR) || EI_CLASSIFIER_SENSOR != EI_CLASSIFIER_SENSOR_MICROPHONE
 #error "Invalid model for current sensor."
 #endif
+
+//------------------------------------------------------------- CHUNK 5 START -------------------------------------------------------------//
+void print2digits(int number) {
+  if (number < 10) {
+    display.print("0"); // print a 0 before if the number is < than 10
+  }
+  display.print(number);
+}
+//------------------------------------------------------------- CHUNK 5 START -------------------------------------------------------------//
+
+
