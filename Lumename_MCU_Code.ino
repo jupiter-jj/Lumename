@@ -1,5 +1,5 @@
 /* Edge Impulse ingestion SDK
- * Copyright (c) 2023 EdgeImpulse Inc.
+ * Copyright (c) 2022 EdgeImpulse Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,15 +41,61 @@
 
 /* Includes ---------------------------------------------------------------- */
 #include <PDM.h>
-#include <lumename-verson-1_inferencing.h>
+#include <lumename-version-21_inferencing.h>
 
-#define VBR 2  
-#define LED 13
-#define WAKE_PULSE 3
-//#define DEBUG
+
+//------------------------------------------------------------- CHUNK 1 START -------------------------------------------------------------//
+//include for OLED
+#include <DS3231.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+//Display configuration
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET    -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+//RTC configuration
+DS3231 myRTC;
+bool century = false;
+bool h12Flag;
+bool pmFlag;
+byte alarmDay, alarmHour, alarmMinute, alarmSecond, alarmBits;
+bool alarmDy, alarmH12Flag, alarmPmFlag;
+
+//electronic devices
+#define VBR1 3
+#define VBR2 4
+#define VBR3 5
+#define VBR4 6
+#define LED 2 
+#define WAKE_PULSE 7
+
+//class indexes
+#define NAME_INDEX 0
+#define STATIC_INDEX 1
+#define UNKNOWN_INDEX 2
+
+//thresholds
+#define MASTER_NAME_THRESHOLD 0.8
+#define AVG2_NAME_THRESHOLD 0.5
+//#define DEPENDENT_NAME_THRESHOLD 0.3
+//#define STATIC_THRESHOLD 0.2
+//#define UNKNOWN_THRESHOLD 0.6
+
+//debug
+#define DEBUG
 
 unsigned long currentTime = 0;
 unsigned long triggerTime = 0;
+
+float avg;
+float prev;
+
+//------------------------------------------------------------- CHUNK 1 END -------------------------------------------------------------//
 
 /** Audio buffers, pointers and selectors */
 typedef struct {
@@ -71,30 +117,52 @@ static int print_results = -(EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW);
  */
 void setup()
 {
+    //------------------------------------------------------------- CHUNK 2 START -------------------------------------------------------------//
+    //DELETE CHUNK -----------------------------------------
+    // put your setup code here, to run once:
+    Serial.begin(115200);
+    // comment out the below line to cancel the wait for USB connection (needed for native USB)
+    //while (!Serial);
+    Serial.println("Edge Impulse Inferencing Demo");
+    //FINISH DELETE CHUNK -----------------------------------------
+	  Wire.begin(); // Start the I2C interface
+
+    //init display
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
 #ifdef DEBUG
-  // put your setup code here, to run once:
-  Serial.begin(115200);
-  // comment out the below line to cancel the wait for USB connection (needed for native USB)
-  //while (!Serial);
-  Serial.println("Edge Impulse Inferencing Demo");
-
-  // summary of inferencing settings (from model_metadata.h)
-  ei_printf("Inferencing settings:\n");
-  ei_printf("\tInterval: %.2f ms.\n", (float)EI_CLASSIFIER_INTERVAL_MS);
-  ei_printf("\tFrame size: %d\n", EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE);
-  ei_printf("\tSample length: %d ms.\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT / 16);
-  ei_printf("\tNo. of classes: %d\n", sizeof(ei_classifier_inferencing_categories) /
-                                          sizeof(ei_classifier_inferencing_categories[0]));
+      Serial.println(F("SSD1306 allocation failed"));
 #endif
+      for (;;); // Don't proceed, loop forever
+    } else {
+#ifdef DEBUG
+      Serial.println(F("SSD1306 Begun"));
+#endif
+    }
+    //set pinmodes
+    pinMode(VBR1, OUTPUT);
+    pinMode(VBR2, OUTPUT);
+    pinMode(VBR3, OUTPUT);
+    pinMode(VBR4, OUTPUT);
+    pinMode(LED, OUTPUT);
+    pinMode(WAKE_PULSE, OUTPUT);
 
-  run_classifier_init();
-  if (microphone_inference_start(EI_CLASSIFIER_SLICE_SIZE) == false) {
-      ei_printf("ERR: Could not allocate audio buffer (size %d), this could be due to the window length of your model\r\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT);
-      return;
-  }
-  pinMode(VBR, OUTPUT);
-  pinMode(LED, OUTPUT);
-  pinMode(WAKE_PULSE, OUTPUT);
+    //------------------------------------------------------------- CHUNK 2 END -------------------------------------------------------------//
+
+    // summary of inferencing settings (from model_metadata.h)
+    ei_printf("Inferencing settings:\n");
+    ei_printf("\tInterval: %.2f ms.\n", (float)EI_CLASSIFIER_INTERVAL_MS);
+    ei_printf("\tFrame size: %d\n", EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE);
+    ei_printf("\tSample length: %d ms.\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT / 16);
+    ei_printf("\tNo. of classes: %d\n", sizeof(ei_classifier_inferencing_categories) /
+                                            sizeof(ei_classifier_inferencing_categories[0]));
+
+    run_classifier_init();
+    if (microphone_inference_start(EI_CLASSIFIER_SLICE_SIZE) == false) {
+        ei_printf("ERR: Could not allocate audio buffer (size %d), this could be due to the window length of your model\r\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT);
+        return;
+    }
+
+    
 }
 
 /**
@@ -102,26 +170,47 @@ void setup()
  */
 void loop()
 {
-  //TIME DEPENDENT COMPONENTS ----------------------------------
-  currentTime = millis();
+  //------------------------------------------------------------- CHUNK 3 START -------------------------------------------------------------//
+    // reset display
+    display.setRotation(1); //rotate 90 degrees
+    display.clearDisplay(); //clears display
+    display.setTextColor(SSD1306_WHITE); //sets color to white
+    display.setTextSize(5.5); //sets text size to 6 (60 pixels)
+    display.setCursor(1, 20); //x, y starting coordinates
 
-  //turn on/off vibrator and led
+    //print2digits(myRTC.getHour(h12Flag, pmFlag));
+    //display.print(":");
+    //display.setCursor(1,74); //next line
+    //print2digits(myRTC.getMinute());
+    
+    //display.display();
+    
+    //TIME DEPENDENT COMPONENTS ----------------------------------
+    currentTime = millis();
+
+    //turn on/off vibrator and led
     if ((currentTime-triggerTime < 400) || ((currentTime-triggerTime > 650) && (currentTime-triggerTime < 1050))) {
-      digitalWrite(VBR, HIGH);
-      digitalWrite(LED, HIGH);
+        digitalWrite(VBR1, HIGH);
+        digitalWrite(VBR2, HIGH);
+        digitalWrite(VBR3, HIGH);
+        digitalWrite(VBR4, HIGH);
+        digitalWrite(LED, HIGH);
     } else {
-      digitalWrite(VBR, LOW);
-      digitalWrite(LED, LOW);
+        digitalWrite(VBR1, LOW);
+        digitalWrite(VBR2, LOW);
+        digitalWrite(VBR3, LOW);
+        digitalWrite(VBR4, LOW);
+        digitalWrite(LED, LOW);
     }
 
     // keep battery awake code
     if (currentTime % 10000 < 1000){
-      digitalWrite(WAKE_PULSE, LOW);
+        digitalWrite(WAKE_PULSE, LOW);
     } else {
-      digitalWrite(WAKE_PULSE, HIGH);
+        digitalWrite(WAKE_PULSE, HIGH);
     }
 
-    //----------------------------------------------------------
+    //------------------------------------------------------------- CHUNK 3 END -------------------------------------------------------------//
 
     bool m = microphone_inference_record();
     if (!m) {
@@ -140,10 +229,12 @@ void loop()
         return;
     }
 
-    if (++print_results >= (EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW)) {
+    if (++print_results >= 1) { //formerly 1 was (EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW) -- reduces "averaging"` function
         // print the predictions
 
-#ifdef DEBUG
+//------------------------------------------------------------- CHUNK 4 START -------------------------------------------------------------//
+
+#ifdef DEBUG //REPLACE CHUNK -----------------------------------------
         ei_printf("Predictions ");
         ei_printf("(DSP: %d ms., Classification: %d ms., Anomaly: %d ms.)",
             result.timing.dsp, result.timing.classification, result.timing.anomaly);
@@ -152,11 +243,27 @@ void loop()
             ei_printf("    %s: %.5f\n", result.classification[ix].label,
                       result.classification[ix].value);
         }
-#endif
+#endif //FINISH REPLACE CHUNK -----------------------------------------
 
-        if (result.classification[2].value > 0.2){
-            triggerTime = millis();
-        }
+//#define NAME_INDEX, STATIC_INDEX, UNKNOWN_INDEX
+//MASTER_NAME_THRESHOLD, DEPENDENT_NAME_THRESHOLD, STATIC_THRESHOLD, UNKNOWN_THRESHOLD
+    display.print(int(result.classification[NAME_INDEX].value * 100));
+    display.display();
+
+    avg = (result.classification[NAME_INDEX].value + prev) / 2;
+
+    if (result.classification[NAME_INDEX].value > MASTER_NAME_THRESHOLD){
+        triggerTime = millis();
+    } else if (avg > AVG2_NAME_THRESHOLD){
+        triggerTime = millis();
+    }
+    
+    /*else if ((result.classification[NAME_INDEX].value > DEPENDENT_NAME_THRESHOLD) && (result.classification[STATIC_INDEX].value < STATIC_THRESHOLD) && (result.classification[UNKNOWN_INDEX].value < UNKNOWN_THRESHOLD)){
+          triggerTime = millis();
+    }*/
+    prev = result.classification[NAME_INDEX].value;
+
+//------------------------------------------------------------- CHUNK 4 END -------------------------------------------------------------//
 
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
@@ -294,3 +401,14 @@ static void microphone_inference_end(void)
 #if !defined(EI_CLASSIFIER_SENSOR) || EI_CLASSIFIER_SENSOR != EI_CLASSIFIER_SENSOR_MICROPHONE
 #error "Invalid model for current sensor."
 #endif
+
+//------------------------------------------------------------- CHUNK 5 START -------------------------------------------------------------//
+void print2digits(int number) {
+  if (number < 10) {
+    display.print("0"); // print a 0 before if the number is < than 10
+  }
+  display.print(number);
+}
+//------------------------------------------------------------- CHUNK 5 START -------------------------------------------------------------//
+
+
