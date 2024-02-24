@@ -5,7 +5,6 @@ import soundfile as sf
 import os
 import random
 import shutil
-import soundfile
 
 # disable warnings
 import warnings  
@@ -38,7 +37,7 @@ for path in paths:
 
 print("Deletion complete.")
 
-#----------------------------------------------------------------MARK AUDIO MANIPULATION-----------------------------------------------------------------------#
+#----------------------------------------------------------------NAME AUDIO MANIPULATION-----------------------------------------------------------------------#
 
 # INITIALIZE VARIABLES/FILEPATHS:
 # change to working directory
@@ -153,7 +152,7 @@ def change_pitch(semitone_change, file_path, target_length_ms=1000):
     #temporary export 
 
     temp_path = os.path.join(target_dir, (f"temp_pith_file.wav"))
-    soundfile.write(temp_path, new_y, sr)
+    sf.write(temp_path, new_y, sr)
     
     shifted_audio = pydub.AudioSegment.from_wav(temp_path)
 
@@ -267,6 +266,8 @@ def speed_up(audio, speed_factor, total_length_ms=1000):
     
     return audio
 
+def count_files(directory):
+    return len([name for name in os.listdir(directory) if os.path.isfile(os.path.join(directory, name))])
 
 #---------------------------------------------------------------------------------#
 
@@ -278,10 +279,10 @@ for i in range(len(file_names)):
     original_audio = find_loudest_segment(audio=original_audio)
     #original_audio.export(rf"import\training\name.{file_name}_original_1sec.wav", format="wav") #export the 1 sec
 
-    for j in range(20): #randomly change 7 times
-        volume_change_dB = random.uniform(-7, 7)
+    for j in range(15): #randomly change 30 times
+        volume_change_dB = random.uniform(-15, 7)
 
-        semitone_change = random.uniform(-6, 6)
+        semitone_change = random.uniform(-9, 6)
 
         speed_factor = random.uniform(1, 1.4)
 
@@ -313,76 +314,52 @@ for i in range(len(file_names)):
     for ambiance_path in ambiance_paths:
         start = ambiance_path.find("\\ambiance\\")
         start += len("\\ambiance\\") #len("\\ambiance\\") = 12
-        ambiance_name = ambiance_path[start:]
+        ambiance_name = ambiance_path[start:-4] #start at name, end at ".wav"
 
-        for j in range(20): #randomly change 7 times
+        for j in range(10): #randomly change 20 times
             ambiance_audio = pydub.AudioSegment.from_wav(ambiance_path)
 
             #SET RAND VARIABLES
-            ambiance_db = random.randint(-7, 7) 
+            ambiance_db = random.uniform(-15, 3) 
 
-            volume_change_dB = ambiance_db + random.uniform(2, 5)
+            volume_change_dB = ambiance_db + random.uniform(0, 5)
 
-            semitone_change = random.uniform(-7, 7)
+            semitone_change = random.uniform(-8, 6)
 
             speed_factor = random.uniform(1, 1.4)     
-
-            ambiance_db = random.randint(-7, 7)   
 
             timestamp = random.randint(0, len(ambiance_audio)-1000)
             ambiance_segment = ambiance_audio[timestamp:timestamp+1001]
 
             # Modify PITCH
             if semitone_change == 0:
-                continue
-            modified_audio = change_pitch(semitone_change, f"{file_name}.wav")
+                pass
+            else:
+                modified_audio = change_pitch(semitone_change, f"{file_name}.wav")
 
             #modify SPEED
             if speed_factor == 0 or speed_factor == 1:
-                continue
+                pass
             elif speed_factor > 1:
                 #speed up audio
                 modified_audio = speed_up(modified_audio, speed_factor)
             
             #modify VOLUME
             if volume_change_dB == 0:
-                continue
-            modified_audio = modified_audio + volume_change_dB
+                pass
+            else:
+                modified_audio = modified_audio + volume_change_dB
 
             #modify SHIFT
-            modified_audio, new_path = shift_looped(f"{ambiance_name}_{ambiance_db}_volume_{volume_change_dB}_speed_{speed_factor}_pitch_{semitone_change}", modified_audio, original=file_name, target_dir=target_dir)
+            modified_audio, new_path = shift_looped(f"{ambiance_name}_gain_{ambiance_db}_volume_{volume_change_dB}_speed_{speed_factor}_pitch_{semitone_change}", modified_audio, original=file_name, target_dir=target_dir)
 
             modified_audio = mix_audio_files(modified_audio, ambiance_segment, gain_dB=ambiance_db)
 
             modified_audio.export(new_path, format="wav")
 
-#---------------------------------------------------------------------------------#
-            
-#delete files at random until having 2800
-def delete_random_files(directory, desired_count, keep_list):
-    # List all files in the directory
-    files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
-    desired_count += len(keep_list) + 2 #2 stands for amt of python files inside
-    
-    # Check if the current number of files is more than the desired count
-    while len(files) > desired_count:
-        # Select a random file to delete
-        file_to_delete = random.choice(files)
+x = count_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import\training")
 
-        _, file_extension = os.path.splitext(file_to_delete)
-
-        while (file_to_delete in keep_list) or (file_extension.lower() == ".py"):
-            file_to_delete = random.choice(files)
-            _, file_extension = os.path.splitext(file_to_delete)
-        # Delete the file
-        os.remove(os.path.join(directory, file_to_delete))
-        # Remove the deleted file from the list
-        files.remove(file_to_delete)
-        #print(f"Deleted {file_to_delete}")
-
-    print(f"Operation completed. {len(files)} files remaining.")
-
-#delete_random_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import", 20200, [name + ".wav" for name in file_names])
+print(f"(name) Moved {x} files to {target_dir}")
 
 #----------------------------------------------------------------VALIDATION SET-----------------------------------------------------------------------#
 
@@ -391,6 +368,7 @@ os.chdir(os.path.expanduser('~'))
 
 # Define the source and target directories 
 source_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation'
+name_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\name_cut'
 target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import\testing'
 
 #--------------------------------------------------------------------------------------#
@@ -406,20 +384,19 @@ for entry in os.listdir(source_dir):
     if os.path.isfile(full_path):
         all_files.append(full_path)
 
-
 counter = 0
 for file_path in all_files:
     try:
         audio = pydub.AudioSegment.from_wav(file_path)
     except Exception as e:
-        print(f"Error processing {file_path}: {e}")
+        print(f"(validation) Error processing {file_path}: {e}")
     length_audio = len(audio)
     start = 0
     batch_size = 250
     one_second = 1000 # 1000 ms = 1 sec
     for i in range(0, length_audio, batch_size):
         for j in range(3):
-            volume_change_dB = random.uniform(-7,7)
+            volume_change_dB = random.uniform(-3,10)
             # Calculate the end position for the current segment
             end = start + one_second
             
@@ -433,12 +410,27 @@ for file_path in all_files:
                     segment.export((new_path), format="wav")
                     counter += 1
                 except Exception as e:
-                    print(f"(ambiance) Error copying {file_path} to {new_path}: {e}")
+                    print(f"(validation) Error copying {file_path} to {new_path}: {e}")
             
         # Update the start position for the next segment
         start = end
 
-print(f"(ambiance) Moved {counter} files to {target_dir}")
+name_files = []
+for entry in os.listdir(name_dir):
+    full_path = os.path.join(name_dir, entry)
+    # Check if it's a file and append
+    if os.path.isfile(full_path):
+        name_files.append(full_path)
+
+for file_path in name_files:
+    try:
+        new_path = os.path.join(target_dir, (f"name.{str(counter)}_{os.path.basename(file_path)}"))
+        shutil.copy(file_path, new_path)
+        counter += 1
+    except Exception as e:
+        print(f"(background) Error copying {file_path} to {new_path}: {e}")
+
+print(f"(validation) Moved {counter} files to {target_dir}")
 
 #----------------------------------------------------------------STATIC MANIPULATION-----------------------------------------------------------------------#
 
@@ -458,11 +450,14 @@ for root, dirs, files in os.walk(source_dir):
     for file in files:
         all_files.append(os.path.join(root, file))
 
+n = count_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import\training") / 2.5
+n = int(round(n // len(all_files)))
+
 # Move each selected file to the target directory
 counter = 0
 for file_path in all_files:
     original_audio = pydub.AudioSegment.from_wav(file_path)
-    for volume_change_dB in rand_range(-5, 21, 5):
+    for volume_change_dB in rand_range(-5, 21, n):
         counter += 1
 
         # Modify volume
@@ -473,14 +468,10 @@ for file_path in all_files:
         modified_audio.export((new_path), format="wav")
     
 
-print(f"Moved {counter} files to {target_dir}")
+print(f"(static) Moved {counter} files to {target_dir}")
 
 
 #----------------------------------------------------------------BACKGROUND NOISE MANIPULATION-----------------------------------------------------------------------#
-
-def count_files(directory):
-    """Counts the number of files in the given directory."""
-    return len([name for name in os.listdir(directory) if os.path.isfile(os.path.join(directory, name))])
 
 # Define the source and target directories 
 source_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\speech_commands_v0.02'
@@ -489,7 +480,7 @@ ambiance_dir2 = r'C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\ambiance
 target_dir = r'C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\import_unknown\training'
 
 # Define the number of files to randomly select
-x = round(count_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import\training")*1.1) # number of name files
+x = round(count_files(r"C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import\training")*1.05) # number of name files
 
 #--------------------------------------------------------------------------------------#
 
@@ -499,15 +490,18 @@ ambiance_files = [os.path.join(ambiance_dir, f) for f in os.listdir(ambiance_dir
 ambiance_files.extend(os.path.join(ambiance_dir2, f) for f in os.listdir(ambiance_dir2))
 
 ambiance_counter = 0
+
 for file_path in ambiance_files:
     try:
         ambiance_original = pydub.AudioSegment.from_wav(file_path)
     except Exception as e:
-        print(f"Error processing {file_path}: {e}")
+        print(f"(background ambiance) Error processing {file_path}: {e}")
     length_audio = len(ambiance_original)
     start = 0
     one_second = 1000 # 1000 ms = 1 sec
-    for i in range(0, length_audio, one_second):
+    for i in range(0, length_audio//2, one_second):
+        ambiance_db = random.uniform(-10, 3) 
+
         # Calculate the end position for the current segment
         end = start + one_second
         
@@ -520,12 +514,14 @@ for file_path in ambiance_files:
                 segment.export((new_path), format="wav")
                 ambiance_counter += 1
             except Exception as e:
-                print(f"(ambiance) Error copying {file_path} to {new_path}: {e}")
+                print(f"(background ambiance) Error copying {file_path} to {new_path}: {e}")
+
+            segment = segment + ambiance_db
         
         # Update the start position for the next segment
         start = end
 
-print(f"(ambiance) Moved {ambiance_counter} files to {target_dir}")
+print(f"(background ambiance) Moved {ambiance_counter} files to {target_dir}")
 
 #--------------------------------------------------------------------------------------#
 
@@ -544,23 +540,42 @@ x -= ambiance_counter
 # Randomly select x files
 selected_files = random.sample(all_files, x)
 
-print(f"(other) Total files available: {len(all_files)}")
-print(f"(other) Files to be processed: {len(selected_files)}")
+# print(f"(other) Total files available: {len(all_files)}")
+# print(f"(other) Files to be processed: {len(selected_files)}")
 
 # Move each selected file to the target directory
 counter = 0
 for file_path in selected_files:
-    try:
-        new_path = os.path.join(target_dir, (f"unknown.{str(counter)}_{os.path.basename(file_path)}"))
-        shutil.copy(file_path, new_path)
-        counter += 1
-    except Exception as e:
-        print(f"(other) Error copying {file_path} to {new_path}: {e}")
+    ambiance_switch = random.randint(0, 1)
 
-print(f"(other) Moved {counter+ambiance_counter} files to {target_dir}")
+    if ambiance_switch == 1:
+        ambiance_path = random.choice(ambiance_files)
+        
+        ambiance_audio = pydub.AudioSegment.from_wav(ambiance_path)
+        unknown_word = pydub.AudioSegment.from_wav(file_path)
+
+        timestamp = random.randint(0, len(ambiance_audio)-1000)
+        ambiance_segment = ambiance_audio[timestamp:timestamp+1001]
+
+        ambiance_db = random.randint(-4, 4) 
+        modified_audio = mix_audio_files(unknown_word, ambiance_segment, gain_dB=ambiance_db)
+
+        new_path = os.path.join(target_dir, (f"unknown.{str(counter)}_ambiance_{ambiance_db}db_{os.path.basename(file_path)}"))
+        modified_audio.export(new_path, format="wav")
+    else:
+        try:
+            new_path = os.path.join(target_dir, (f"unknown.{str(counter)}_{os.path.basename(file_path)}"))
+            shutil.copy(file_path, new_path)
+            counter += 1
+        except Exception as e:
+            print(f"(background) Error copying {file_path} to {new_path}: {e}")
+
+print(f"(background) Moved {counter+ambiance_counter} files to {target_dir}")
 
 #----------------------------------------------------------------UPLOAD TO EDGE IMPULSE CLI-----------------------------------------------------------------------#
 
+# play sound to signify end of program
+os.system(r"start C:\Users\jnell\Downloads\Lumename\Other\note.wav")
 
 #upload to edge-impulse-cli
 #os.system("pip install nodejs") #pip install nodejs if needed
@@ -568,7 +583,7 @@ print(f"(other) Moved {counter+ambiance_counter} files to {target_dir}")
 
 os.system(r"edge-impulse-uploader --api-key ei_8d4f08d9d3c210ba69d9e71cda762768df24faee23b8f2b4ec6ce2362b57cf02") #makes data automatically go to specific project
 
-#upload MARK training data
+#upload NAME training data
 os.system(r"edge-impulse-uploader --label name --directory C:\Users\jnell\Downloads\Lumename\Python_Audio_Script\import")
 
 #upload STATIC training data
@@ -579,3 +594,6 @@ os.system(r"edge-impulse-uploader --label unknown --directory C:\Users\jnell\Dow
 
 #upload ALL TESTING data
 os.system(r"edge-impulse-uploader --directory C:\Users\jnell\Downloads\Lumename\Local_Training_Scripts\validation\import")
+
+# play sound to signify end of program
+os.system(r"start C:\Users\jnell\Downloads\Lumename\Other\note.wav")
