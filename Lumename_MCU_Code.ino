@@ -82,6 +82,8 @@ bool alarmDy, alarmH12Flag, alarmPmFlag;
 
 //thresholds
 #define MASTER_NAME_THRESHOLD 0.7
+#define MAX_DIFF 0.1
+#define NAME_AMT_THRESHOLD 1
 //#define AVG2_NAME_THRESHOLD 0.6
 //#define DEPENDENT_NAME_THRESHOLD 0.3
 //#define STATIC_THRESHOLD 0.2
@@ -98,11 +100,14 @@ unsigned long triggerTime = 0;
 float name_val_total;
 float avg;
 float prev;
+char* prev_classifications[3];
 
 float prev_max;
-float max;
+float max_val;
 int prev_index;
-int index;
+int index_val;
+
+int name_counter;
 
 /** Audio buffers, pointers and selectors */
 typedef struct {
@@ -180,21 +185,21 @@ void setup()
  */
 void loop()
 {
-    if (currentTime % 20000 < 50){
-        // reset display
-        display.setRotation(1); //rotate 90 degrees
-        display.clearDisplay(); //clears display
-        display.setTextColor(SSD1306_WHITE); //sets color to white
-        display.setTextSize(5.5); //sets text size to 6 (60 pixels)
-        display.setCursor(1, 20); //x, y starting coordinates
-
-        print2spaces(myRTC.getHour(h12Flag, pmFlag));
-        //display.print(":");
-        display.setCursor(1,74); //next line
-        print2digits(myRTC.getMinute());
-        
-        display.display();
-    }
+    //if (currentTime % 20000 < 50){
+    //    // reset display
+    //    display.setRotation(1); //rotate 90 degrees
+    //    display.clearDisplay(); //clears display
+    //    display.setTextColor(SSD1306_WHITE); //sets color to white
+    //    display.setTextSize(5.5); //sets text size to 6 (60 pixels)
+    //    display.setCursor(1, 20); //x, y starting coordinates
+    //
+    //    print2spaces(myRTC.getHour(h12Flag, pmFlag));
+    //    //display.print(":");
+    //    display.setCursor(1,74); //next line
+    //    print2digits(myRTC.getMinute());
+    //    
+    //    display.display();
+    //}
     
     //TIME DEPENDENT COMPONENTS ----------------------------------
     currentTime = millis();
@@ -258,6 +263,10 @@ void loop()
         name_val_total = result.classification[NAME_INDEX].value + result.classification[NAME_PITCH_INDEX].value + result.classification[NAME_AMBIANCE_INDEX].value + result.classification[NAME_AMBIANCE_PITCH_INDEX].value;
         avg = (name_val_total + prev) / 2;
 
+        prev_classifications[2] = prev_classifications[1];
+        prev_classifications[1] = prev_classifications[0];
+        prev_classifications[0] = classify_individual(result);
+
 #ifdef DEBUG_AVG
       Serial.print("total name value: ");
       Serial.println(name_val_total);
@@ -267,14 +276,19 @@ void loop()
       Serial.println();
 #endif
 
-          if (name_val_total > MASTER_NAME_THRESHOLD){
-            triggerTime = millis();
-            avg = 0.0;
-            prev = 0.0;
-            name_val_total = 0.0;
-          } else { 
-            prev = name_val_total;
-          }
+        if (classify_last_three(prev_classifications) == "name"){
+          triggerTime = millis();
+          avg = 0.0;
+          prev = 0.0;
+
+          prev_classifications[2] = "not name";
+          prev_classifications[1] = "not name";
+          prev_classifications[0] = "not name";
+
+          name_val_total = 0.0;
+        } else { 
+          prev = name_val_total;
+        }
     }
 
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
@@ -447,32 +461,60 @@ void print2spaces(int number) {
   }
 }
 
-void classify(ei_impulse_result_classification_t values){
+char* classify_individual(ei_impulse_result_t result){
   prev_max = 0;
-  max = 0;
+  max_val = 0;
   prev_index = 0;
-  index = 0;
+  index_val = 0;
 
   for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
-    if (result.classification[ix].value > max){
-      prev_max = max
-      max = result.classification[ix].value;
-      prev_index = index;
-      index = ix;
+    if (result.classification[ix].value > max_val){
+      prev_max = max_val;
+      max_val = result.classification[ix].value;
+      prev_index = index_val;
+      index_val = ix;
     }
+  }
 
-    if (index >= 3 && index <= 6){ //if max = "name"
-      if (prev_index <= 2 || prev_index == 7){ //if max = name AND second max = "not name"
-        if (max - prev_max > 0.1){ //if diff > 0.1
-          return "name"
-        } else {
-          return "not name"
-        }
-      } else { //if max and second max = "name"
-        return "name"
+#ifdef DEBUG
+  Serial.print("index_val: ");
+  Serial.println(index_val);
+
+  Serial.print("max_val: ");
+  Serial.println(max_val);
+
+  Serial.print("prev_index: ");
+  Serial.println(prev_index);
+
+  Serial.print("prev_max: ");
+  Serial.println(prev_max);
+#endif
+
+  if (index_val >= 3 && index_val <= 6){ //if max = "name"
+    if (prev_index <= 2 || prev_index == 7){ //if max = name AND second max = "not name"
+      if (max_val - prev_max > MAX_DIFF){ //if diff > 0.1
+        return "name";
+      } else {
+        return "not name";
       }
-    } else { //if max = "not"
-      return "not name"
+    } else { //if max and second max = "name"
+      return "name";
     }
-  } 
+  } else { //if max = "not"
+    return "not name";
+  }
+}
+
+char* classify_last_three(char* prev_classifications[3]) {
+  name_counter = 0;
+  for (int ix = 0; ix < 3; ix++){
+    if (prev_classifications[ix] == "name"){
+      name_counter++;
+    }
+  }
+  if (name_counter >= NAME_AMT_THRESHOLD){
+    return "name";
+  } else {
+    return "not name";
+  }
 }
