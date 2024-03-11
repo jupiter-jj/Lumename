@@ -41,10 +41,8 @@
 
 /* Includes ---------------------------------------------------------------- */
 #include <PDM.h>
-#include <lumename-version-21_inferencing.h>
+#include <lumename-debug-1_inferencing.h>
 
-
-//------------------------------------------------------------- CHUNK 1 START -------------------------------------------------------------//
 //include for OLED
 #include <DS3231.h>
 #include <SPI.h>
@@ -69,33 +67,42 @@ bool alarmDy, alarmH12Flag, alarmPmFlag;
 //electronic devices
 #define VBR1 3
 #define VBR2 4
-#define VBR3 5
-#define VBR4 6
+//#define VBR3 5
+//#define VBR4 6
 #define LED 2 
-#define WAKE_PULSE 7
+#define KEY 7
 
 //class indexes
-#define NAME_INDEX 0
-#define STATIC_INDEX 1
-#define UNKNOWN_INDEX 2
+#define NAME_INDEX 3
+#define NAME_PITCH_INDEX 4
+#define NAME_AMBIANCE_INDEX 5
+#define NAME_AMBIANCE_PITCH_INDEX 6
+
+#define STATIC_INDEX 7
 
 //thresholds
-#define MASTER_NAME_THRESHOLD 0.8
-#define AVG2_NAME_THRESHOLD 0.5
+#define MASTER_NAME_THRESHOLD 0.7
+//#define AVG2_NAME_THRESHOLD 0.6
 //#define DEPENDENT_NAME_THRESHOLD 0.3
 //#define STATIC_THRESHOLD 0.2
 //#define UNKNOWN_THRESHOLD 0.6
 
 //debug
 #define DEBUG
+#define DEBUG_PRED
+#define DEBUG_AVG
 
 unsigned long currentTime = 0;
 unsigned long triggerTime = 0;
 
+float name_val_total;
 float avg;
 float prev;
 
-//------------------------------------------------------------- CHUNK 1 END -------------------------------------------------------------//
+float prev_max;
+float max;
+int prev_index;
+int index;
 
 /** Audio buffers, pointers and selectors */
 typedef struct {
@@ -117,14 +124,14 @@ static int print_results = -(EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW);
  */
 void setup()
 {
-    //------------------------------------------------------------- CHUNK 2 START -------------------------------------------------------------//
-    //DELETE CHUNK -----------------------------------------
+  digitalWrite(LED_PWR, LOW);
+  digitalWrite(PIN_ENABLE_SENSORS_3V3, LOW);
+
     // put your setup code here, to run once:
     Serial.begin(115200);
     // comment out the below line to cancel the wait for USB connection (needed for native USB)
     //while (!Serial);
     Serial.println("Edge Impulse Inferencing Demo");
-    //FINISH DELETE CHUNK -----------------------------------------
 	  Wire.begin(); // Start the I2C interface
 
     //init display
@@ -138,15 +145,20 @@ void setup()
       Serial.println(F("SSD1306 Begun"));
 #endif
     }
+
+    display.ssd1306_command(SSD1306_SETCONTRAST);
+    display.ssd1306_command(0x00);
     //set pinmodes
     pinMode(VBR1, OUTPUT);
-    pinMode(VBR2, OUTPUT);
-    pinMode(VBR3, OUTPUT);
-    pinMode(VBR4, OUTPUT);
-    pinMode(LED, OUTPUT);
-    pinMode(WAKE_PULSE, OUTPUT);
+    NRF_P1->PIN_CNF[12] = 0x501; //set high drive
 
-    //------------------------------------------------------------- CHUNK 2 END -------------------------------------------------------------//
+    pinMode(VBR2, OUTPUT);
+    //NRF_P1->PIN_CNF[15] = 0x501; //set high drive
+    //pinMode(VBR2, OUTPUT);
+    //pinMode(VBR3, OUTPUT);
+    //pinMode(VBR4, OUTPUT);
+    pinMode(LED, OUTPUT);
+    pinMode(KEY, OUTPUT);
 
     // summary of inferencing settings (from model_metadata.h)
     ei_printf("Inferencing settings:\n");
@@ -161,8 +173,6 @@ void setup()
         ei_printf("ERR: Could not allocate audio buffer (size %d), this could be due to the window length of your model\r\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT);
         return;
     }
-
-    
 }
 
 /**
@@ -170,20 +180,21 @@ void setup()
  */
 void loop()
 {
-  //------------------------------------------------------------- CHUNK 3 START -------------------------------------------------------------//
-    // reset display
-    display.setRotation(1); //rotate 90 degrees
-    display.clearDisplay(); //clears display
-    display.setTextColor(SSD1306_WHITE); //sets color to white
-    display.setTextSize(5.5); //sets text size to 6 (60 pixels)
-    display.setCursor(1, 20); //x, y starting coordinates
+    if (currentTime % 20000 < 50){
+        // reset display
+        display.setRotation(1); //rotate 90 degrees
+        display.clearDisplay(); //clears display
+        display.setTextColor(SSD1306_WHITE); //sets color to white
+        display.setTextSize(5.5); //sets text size to 6 (60 pixels)
+        display.setCursor(1, 20); //x, y starting coordinates
 
-    //print2digits(myRTC.getHour(h12Flag, pmFlag));
-    //display.print(":");
-    //display.setCursor(1,74); //next line
-    //print2digits(myRTC.getMinute());
-    
-    //display.display();
+        print2spaces(myRTC.getHour(h12Flag, pmFlag));
+        //display.print(":");
+        display.setCursor(1,74); //next line
+        print2digits(myRTC.getMinute());
+        
+        display.display();
+    }
     
     //TIME DEPENDENT COMPONENTS ----------------------------------
     currentTime = millis();
@@ -192,25 +203,23 @@ void loop()
     if ((currentTime-triggerTime < 400) || ((currentTime-triggerTime > 650) && (currentTime-triggerTime < 1050))) {
         digitalWrite(VBR1, HIGH);
         digitalWrite(VBR2, HIGH);
-        digitalWrite(VBR3, HIGH);
-        digitalWrite(VBR4, HIGH);
+        //digitalWrite(VBR3, HIGH);
+        //digitalWrite(VBR4, HIGH);
         digitalWrite(LED, HIGH);
     } else {
         digitalWrite(VBR1, LOW);
         digitalWrite(VBR2, LOW);
-        digitalWrite(VBR3, LOW);
-        digitalWrite(VBR4, LOW);
+        //digitalWrite(VBR3, LOW);
+        //digitalWrite(VBR4, LOW);
         digitalWrite(LED, LOW);
     }
 
     // keep battery awake code
     if (currentTime % 10000 < 1000){
-        digitalWrite(WAKE_PULSE, LOW);
+        digitalWrite(KEY, LOW);
     } else {
-        digitalWrite(WAKE_PULSE, HIGH);
+        digitalWrite(KEY, HIGH);
     }
-
-    //------------------------------------------------------------- CHUNK 3 END -------------------------------------------------------------//
 
     bool m = microphone_inference_record();
     if (!m) {
@@ -232,9 +241,7 @@ void loop()
     if (++print_results >= 1) { //formerly 1 was (EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW) -- reduces "averaging"` function
         // print the predictions
 
-//------------------------------------------------------------- CHUNK 4 START -------------------------------------------------------------//
-
-#ifdef DEBUG //REPLACE CHUNK -----------------------------------------
+#ifdef DEBUG_PRED
         ei_printf("Predictions ");
         ei_printf("(DSP: %d ms., Classification: %d ms., Anomaly: %d ms.)",
             result.timing.dsp, result.timing.classification, result.timing.anomaly);
@@ -243,27 +250,32 @@ void loop()
             ei_printf("    %s: %.5f\n", result.classification[ix].label,
                       result.classification[ix].value);
         }
-#endif //FINISH REPLACE CHUNK -----------------------------------------
+#endif
 
-//#define NAME_INDEX, STATIC_INDEX, UNKNOWN_INDEX
-//MASTER_NAME_THRESHOLD, DEPENDENT_NAME_THRESHOLD, STATIC_THRESHOLD, UNKNOWN_THRESHOLD
-    display.print(int(result.classification[NAME_INDEX].value * 100));
-    display.display();
+    if (currentTime-triggerTime > 1500) {
+        //display.print(int(result.classification[NAME_INDEX].value * 100));
+        //display.display();
+        name_val_total = result.classification[NAME_INDEX].value + result.classification[NAME_PITCH_INDEX].value + result.classification[NAME_AMBIANCE_INDEX].value + result.classification[NAME_AMBIANCE_PITCH_INDEX].value;
+        avg = (name_val_total + prev) / 2;
 
-    avg = (result.classification[NAME_INDEX].value + prev) / 2;
+#ifdef DEBUG_AVG
+      Serial.print("total name value: ");
+      Serial.println(name_val_total);
+      //Serial.println();
+      Serial.print("avg: ");
+      Serial.println(avg);
+      Serial.println();
+#endif
 
-    if (result.classification[NAME_INDEX].value > MASTER_NAME_THRESHOLD){
-        triggerTime = millis();
-    } else if (avg > AVG2_NAME_THRESHOLD){
-        triggerTime = millis();
+          if (name_val_total > MASTER_NAME_THRESHOLD){
+            triggerTime = millis();
+            avg = 0.0;
+            prev = 0.0;
+            name_val_total = 0.0;
+          } else { 
+            prev = name_val_total;
+          }
     }
-    
-    /*else if ((result.classification[NAME_INDEX].value > DEPENDENT_NAME_THRESHOLD) && (result.classification[STATIC_INDEX].value < STATIC_THRESHOLD) && (result.classification[UNKNOWN_INDEX].value < UNKNOWN_THRESHOLD)){
-          triggerTime = millis();
-    }*/
-    prev = result.classification[NAME_INDEX].value;
-
-//------------------------------------------------------------- CHUNK 4 END -------------------------------------------------------------//
 
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
@@ -345,7 +357,7 @@ static bool microphone_inference_start(uint32_t n_samples)
     }
 
     // set the gain, defaults to 20
-    PDM.setGain(127);
+    PDM.setGain(135);
 
     record_ready = true;
 
@@ -398,17 +410,69 @@ static void microphone_inference_end(void)
     free(sampleBuffer);
 }
 
+/*
 #if !defined(EI_CLASSIFIER_SENSOR) || EI_CLASSIFIER_SENSOR != EI_CLASSIFIER_SENSOR_MICROPHONE
 #error "Invalid model for current sensor."
-#endif
+#endif*/
 
-//------------------------------------------------------------- CHUNK 5 START -------------------------------------------------------------//
 void print2digits(int number) {
-  if (number < 10) {
-    display.print("0"); // print a 0 before if the number is < than 10
+  if (number < 10){
+    display.print("O");
+    if (number == 0){
+      display.print("O");
+    } else{
+      display.print(number);
+    }
+  } else {
+    display.print(number/10);
+    if (number % 10 == 0) {
+      display.print("O");
+    } else {
+      display.print(number%10);
+    }
   }
-  display.print(number);
 }
-//------------------------------------------------------------- CHUNK 5 START -------------------------------------------------------------//
 
+void print2spaces(int number) {
+  if (number < 10){
+    display.print(" ");
+    display.print(number);
+  } else {
+    display.print(number/10);
+    if (number % 10 == 0) {
+      display.print("O");
+    } else {
+      display.print(number%10);
+    }
+  }
+}
 
+void classify(ei_impulse_result_classification_t values){
+  prev_max = 0;
+  max = 0;
+  prev_index = 0;
+  index = 0;
+
+  for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
+    if (result.classification[ix].value > max){
+      prev_max = max
+      max = result.classification[ix].value;
+      prev_index = index;
+      index = ix;
+    }
+
+    if (index >= 3 && index <= 6){ //if max = "name"
+      if (prev_index <= 2 || prev_index == 7){ //if max = name AND second max = "not name"
+        if (max - prev_max > 0.1){ //if diff > 0.1
+          return "name"
+        } else {
+          return "not name"
+        }
+      } else { //if max and second max = "name"
+        return "name"
+      }
+    } else { //if max = "not"
+      return "not name"
+    }
+  } 
+}
